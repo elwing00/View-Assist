@@ -1,0 +1,109 @@
+- alias: list management
+  id: 02c23176-63bf-4607-836f-d102a51af19d
+  trigger:
+    - platform: conversation
+      command:
+        - "add {item} to [my | the][grocery|shopping] list"
+      id: "add_item"
+    - platform: conversation
+      command:
+        - "remove {item} from [my | the][grocery|shopping] list"
+        - "take {item} off [my | the] [grocery|shopping] list"
+      id: "remove_item"
+    - platform: conversation
+      command:
+        - "(what's | what is) on [my| the] [grocery|shopping] list"
+      id: "list_list"
+  variables:
+    list_entity: todo.anylist_grocery_list
+    dashboard: '/dashboard-viewassist/list'
+    target_satellite_device: "{% for sat in expand('group.viewassist_satellites')
+      %}\n  {% if (device_id(sat.attributes.mic_device)  == trigger.device_id) or
+      (device_id(sat.attributes.display_device)  == trigger.device_id) %}\n    {{
+      sat.entity_id }}\n  {% endif %}\n{% endfor %}"
+    target_display_device: '{{ device_id(state_attr(target_satellite_device, ''display_device''))
+      }}'
+    target_mediaplayer_device: '{{ state_attr(target_satellite_device, ''mediaplayer_device'')
+      }}'
+    target_satellite_device_type: '{{ state_attr(target_satellite_device, ''type'')
+      }}'
+  action:
+    - choose:
+      - conditions:
+        - condition: trigger
+          id: add_item
+        sequence:
+  #        - alias: "add_item"
+        - service: todo.add_item
+          data:
+            item: '{{trigger.slots.item }}'
+          target:
+            entity_id: '{{ list_entity }}'
+          
+        - set_conversation_response: >
+            {{ trigger.slots.item }} added to {{ state_attr(list_entity,'source_name') }}
+          enabled: true
+        - if:
+          - condition: template
+            value_template: '{% if target_satellite_device_type != ''audio_only'' %}true{%
+              else %}false{% endif %}'
+          then:
+          - service: browser_mod.navigate
+            data:
+              path: '{{ dashboard }}'
+            target:
+              device_id: '{{ target_display_device }}'
+      - conditions:
+        - condition: trigger
+          id: remove_item
+        sequence:
+  #        - alias: "remove_item"
+        - if:
+          - condition: template
+            value_template: "{{ trigger.slots.item | lower in state_attr(list_entity,'unchecked_items')|map('lower')|list}} "
+          then:
+          - service: todo.remove_item
+            data:
+              item: '{{ trigger.slots.item|lower }}'
+            target:
+              entity_id: '{{ list_entity }}'
+          - set_conversation_response: >
+              {{ trigger.slots.item }} removed from {{ state_attr(list_entity,'source_name') }}
+            enabled: true
+          else:
+          - set_conversation_response: >
+              {{ trigger.slots.item }} is not in {{ state_attr(list_entity,'source_name') }}
+        - if:
+          - condition: template
+            value_template: '{% if target_satellite_device_type != ''audio_only'' %}true{%
+              else %}false{% endif %}'
+          then:
+          - service: browser_mod.navigate
+            data:
+              path: '{{ dashboard }}'
+            target:
+              device_id: '{{ target_display_device }}'
+      default: 
+        sequence:
+        - set_conversation_response: >
+            {% if int(states(list_entity)) == 0 %}
+              There are no unchecked items on your  {{ state_attr(list_entity,'source_name') }}
+            {% elif int(states(list_entity)) == 1 %}
+              There is 1 unchecked item on your {{ state_attr(list_entity,'source_name') }} 
+              It is {{ state_attr(list_entity,'unchecked_items') }}
+            {% else %}
+              There are {{ states(list_entity) }} items on your {{ state_attr(list_entity,'source_name') }}
+              They are {{ state_attr(list_entity,'unchecked_items') }}
+            {% endif %}
+          enabled: true
+        - if:
+          - condition: template
+            value_template: '{% if target_satellite_device_type != ''audio_only'' %}true{%
+              else %}false{% endif %}'
+          then:
+          - service: browser_mod.navigate
+            data:
+              path: '{{ dashboard }}'
+            target:
+              device_id: '{{ target_display_device }}'
+  mode: single
